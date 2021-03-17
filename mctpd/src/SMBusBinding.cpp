@@ -86,81 +86,6 @@ void SMBusBinding::scanPort(const int scanFd)
     }
 }
 
-static bool isNum(const std::string& s)
-{
-    if (s.empty())
-        return false;
-
-    for (size_t i = 0; i < s.length(); i++)
-        if (isdigit(s[i]) == false)
-            return false;
-
-    return true;
-}
-
-static bool findFiles(const fs::path& dirPath, const std::string& matchString,
-                      std::vector<std::string>& foundPaths)
-{
-    if (!fs::exists(dirPath))
-        return false;
-
-    std::regex search(matchString);
-    for (const auto& p : fs::directory_iterator(dirPath))
-    {
-        std::string path = p.path().string();
-        if (std::regex_search(path, search))
-        {
-            foundPaths.emplace_back(p.path().string());
-        }
-    }
-    return true;
-}
-
-static bool getBusNumFromPath(const std::string& path, std::string& busStr)
-{
-    std::vector<std::string> parts;
-    boost::split(parts, path, boost::is_any_of("-"));
-    if (parts.size() == 2)
-    {
-        busStr = parts[1];
-        if (isNum(busStr))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool getRootBus(const std::string& muxBus, std::string& rootBus)
-{
-    auto ec = std::error_code();
-    auto path = fs::read_symlink(
-        fs::path("/sys/bus/i2c/devices/i2c-" + muxBus + "/mux_device"), ec);
-    if (ec)
-    {
-        return false;
-    }
-
-    std::string filename = path.filename();
-    std::vector<std::string> parts;
-    boost::split(parts, filename, boost::is_any_of("-"));
-    if (parts.size() == 2)
-    {
-        rootBus = parts[0];
-        if (isNum(rootBus))
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool isMuxBus(const std::string& bus)
-{
-    return is_symlink(
-        fs::path("/sys/bus/i2c/devices/i2c-" + bus + "/mux_device"));
-}
-
 /*
  * dstEid can't be removed because this is a callback passed to libmctp and we
  * have to match its expected prototype.
@@ -184,16 +109,10 @@ std::optional<std::vector<uint8_t>>
         {
             mctp_smbus_extra_params temp = device.second;
             prvt.fd = temp.fd;
-            if (isMuxFd(prvt.fd))
-            {
-                prvt.muxHoldTimeOut = 1000;
-                prvt.muxFlags = IS_MUX_PORT;
-            }
-            else
-            {
+            
                 prvt.muxHoldTimeOut = 0;
                 prvt.muxFlags = 0;
-            }
+            
             prvt.slave_addr = temp.slave_addr;
             uint8_t* prvtPtr = reinterpret_cast<uint8_t*>(&prvt);
             return std::vector<uint8_t>(prvtPtr, prvtPtr + sizeof(prvt));
@@ -217,6 +136,7 @@ SMBusBinding::SMBusBinding(std::shared_ptr<object_server>& objServer,
             std::get<SMBusConfiguration>(conf).arpMasterSupport;
         this->bus = std::get<SMBusConfiguration>(conf).bus;
         this->bmcSlaveAddr = std::get<SMBusConfiguration>(conf).bmcSlaveAddr;
+        this->ip = std::get<SMBusConfiguration>(conf).ip;
         registerProperty(smbusInterface, "ArpMasterSupport", arpMasterSupport);
         registerProperty(smbusInterface, "BusPath", bus);
         registerProperty(smbusInterface, "BmcSlaveAddress", bmcSlaveAddr);
@@ -285,101 +205,110 @@ void SMBusBinding::SMBusInit()
 
     mctp_set_rx_all(mctp, &MctpBinding::rxMessage,
                     static_cast<MctpBinding*>(this));
+/*
+	FILE *pFile;
+	char ip[20]={"127.0.0.1"};
+	pFile = fopen("/home/mctp-srver-ip","r");
+	if (pFile == NULL) {
+		printf("fopen fail:%d[%s]/home/mctp-srver-ip \n",errno,strerror(errno));
+	}else{
+		fread(ip, 20, 1, pFile);
+		fprintf(stderr,"MCTP Server IP:%s\n",ip);
+		fclose(pFile);
+	}
+*/
+    fprintf(stderr,"MCTP Server IP--:%s\n",ip.c_str());
+    //socket的建立
+    int sockfd_out = 0;
+    sockfd_out = socket(AF_INET , SOCK_STREAM , 0);
 
-    std::string rootPort;
-    if (!getBusNumFromPath(bus, rootPort))
-    {
-        throwRunTimeError("Error in opening smbus rootport");
-    }
-    std::string inputDevice =
-        "/sys/bus/i2c/devices/" + rootPort + "-1010/slave-mqueue";
-
-    inFd = open(inputDevice.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-
-    // Doesn't exist, try to create one
-    if (inFd < 0)
-    {
-        std::string newInputDevice =
-            "/sys/bus/i2c/devices/i2c-" + rootPort + "/new_device";
-        std::string para("slave-mqueue 0x1010");
-        std::fstream deviceFile;
-        deviceFile.open(newInputDevice, std::ios::out);
-        deviceFile << para;
-        deviceFile.close();
-
-        inFd = open(inputDevice.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-        if (inFd < 0)
-        {
-            throwRunTimeError("Error in opening smbus binding in_bus");
-        }
+    if (sockfd_out == -1){
+        fprintf(stderr,"Fail to create a socket.\n");
     }
 
-    // Open root bus
-    outFd = open(bus.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
+    //socket的連線
 
-    if (outFd < 0)
-    {
-        throwRunTimeError("Error in opening smbus binding out bus");
-    }
+    struct sockaddr_in info_out;
+    bzero(&info_out,sizeof(info_out));
+    info_out.sin_family = PF_INET;
 
-    auto devDir = fs::path("/dev/");
-    auto matchString = std::string(R"(i2c-\d+$)");
-    std::vector<std::string> i2cBuses;
+    //localhost test
+    //info_out.sin_addr.s_addr = inet_addr("127.0.0.1");
+    info_out.sin_addr.s_addr = inet_addr(ip.c_str());
+    info_out.sin_port = htons(8700);
 
-    // Search for mux ports
-    if (!findFiles(devDir, matchString, i2cBuses))
-    {
-        throwRunTimeError("unable to find i2c devices");
-    }
 
-    for (auto i2cPath : i2cBuses)
-    {
-        std::string i2cPort, rootBus;
-        if (!getBusNumFromPath(i2cPath, i2cPort))
-        {
-            phosphor::logging::log<phosphor::logging::level::ERR>(
-                "i2c bus path is malformed",
-                phosphor::logging::entry("PATH=%s", i2cPath.c_str()));
-            continue;
-        }
+    int err = connect(sockfd_out, reinterpret_cast< struct sockaddr *>(&info_out),sizeof(info_out));
+    if(err==-1){
+       fprintf(stderr,"Connection 8700 error\n");
+    }else
+        outFd = sockfd_out;
 
-        if (!isMuxBus(i2cPort))
-        {
-            continue; // we found regular i2c port
-        }
 
-        if (!getRootBus(i2cPort, rootBus))
-        {
-            phosphor::logging::log<phosphor::logging::level::ERR>(
-                "Error getting root port for the bus",
-                phosphor::logging::entry("BUS:", i2cPort.c_str()));
-            continue;
-        }
-
-        // Add to list of muxes if rootport matches to the one defined in mctp
-        // configuration
-        if (rootPort == rootBus)
-        {
-            int muxfd = open(i2cPath.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
-            if (muxfd < 0)
-            {
-
-                continue;
-            }
-            std::pair<int, int> entry(std::stoi(i2cPort), muxfd);
-            muxFds.push_back(entry);
-        }
-    }
-
-    mctp_smbus_set_in_fd(smbus, inFd);
     mctp_smbus_set_out_fd(smbus, outFd);
 
+    //socket的建立
+    int sockfd_in = 0;
+    sockfd_in = socket(AF_INET , SOCK_STREAM , 0);
+
+    if (sockfd_in == -1){
+        fprintf(stderr,"Fail to create a socket.\n");
+    }
+
+    //socket的連線
+
+    struct sockaddr_in info_in;
+    bzero(&info_in,sizeof(info_in));
+    info_in.sin_family = PF_INET;
+
+    //localhost test
+    info_in.sin_addr.s_addr = inet_addr(ip.c_str());
+    info_in.sin_port = htons(8701);
+
+
+    err = connect(sockfd_in, reinterpret_cast< struct sockaddr *>(&info_in),sizeof(info_in));
+    if(err==-1){
+       fprintf(stderr,"Connection to 8701 error\n");
+    }else
+        inFd = sockfd_in;
+    mctp_smbus_set_in_fd(smbus, inFd);
+
+
     smbusReceiverFd.assign(inFd);
-    readResponse();
+    //readResponse();
 }
 
 void SMBusBinding::readResponse()
 {
+	fprintf(stderr,"In readResponse()+++++++++++++++++++++++++++++++++\n");
+#if 0
+
+static constexpr size_t pollTime = 0; // in seconds
+
+    waitTimer.expires_from_now(boost::posix_time::seconds(pollTime));
+
+    waitTimer.async_wait([this](const boost::system::error_code& ec) {
+
+        fprintf(stderr,"SMBusBinding::readResponse\n");
+
+        if (ec == boost::asio::error::operation_aborted)
+        {
+            fprintf(stderr,"we're being cancelled\n");
+            return; // we're being cancelled
+        }
+        // read timer error
+        else if (ec)
+        {
+            fprintf(stderr,"timer error in sensor_read_loop\n");
+            return;
+        }
+
+        mctp_smbus_read(smbus);
+
+        readResponse();
+    });
+
+#else
     smbusReceiverFd.async_wait(
         boost::asio::posix::descriptor_base::wait_error, [this](auto& ec) {
             if (ec)
@@ -389,10 +318,12 @@ void SMBusBinding::readResponse()
                 readResponse();
             }
             // through libmctp this will invoke rxMessage and message assembly
+			fprintf(stderr,"call mctp_smbus_read()++++++++++++++++++\n");
             mctp_smbus_read(smbus);
 
             readResponse();
         });
+#endif
 }
 
 void SMBusBinding::scanAllPorts()
@@ -400,15 +331,13 @@ void SMBusBinding::scanAllPorts()
     phosphor::logging::log<phosphor::logging::level::INFO>(
         "Scanning root port");
     // Scan rootbus
-    scanPort(outFd);
+    uint8_t it = 0x77;
 
-    // scan mux bus
-    for (auto& muxFd : muxFds)
-    {
-        phosphor::logging::log<phosphor::logging::level::INFO>(
-            ("Scanning Mux " + std::to_string(std::get<0>(muxFd))).c_str());
-        scanPort(std::get<1>(muxFd));
-    }
+    phosphor::logging::log<phosphor::logging::level::INFO>(
+            ("Adding device " + std::to_string(it)).c_str());
+
+    deviceMap.insert(std::make_pair(outFd, it));
+
 }
 
 bool SMBusBinding::isMuxFd(const int fd)
@@ -428,8 +357,12 @@ void SMBusBinding::initEndpointDiscovery()
     phosphor::logging::log<phosphor::logging::level::INFO>(
         "InitEndpointDiscovery");
 
-    /* Scan bus once */
-    scanAllPorts();
+    uint8_t it = 0x71;
+
+    phosphor::logging::log<phosphor::logging::level::INFO>(
+            ("1--Adding device " + std::to_string(it)).c_str());
+
+    deviceMap.insert(std::make_pair(outFd, it));
 
     /* Since i2c muxes restrict that only one command needs to be
      * in flight, we cannot register multiple endpoints in parallel.
@@ -447,12 +380,6 @@ void SMBusBinding::initEndpointDiscovery()
             struct mctp_smbus_extra_params smbusBindingPvt;
             smbusBindingPvt.fd = std::get<0>(device);
 
-            if (isMuxFd(smbusBindingPvt.fd))
-            {
-                smbusBindingPvt.muxHoldTimeOut = ctrlTxRetryDelay;
-                smbusBindingPvt.muxFlags = 0x80;
-            }
-            else
             {
                 smbusBindingPvt.muxHoldTimeOut = 0;
                 smbusBindingPvt.muxFlags = 0;
@@ -467,7 +394,8 @@ void SMBusBinding::initEndpointDiscovery()
             mctp_eid_t eid = 0xFF;
             if( smbusBindingPvt.slave_addr == 0xE2)//This is a PLDM I2C Slave device on NCT6681 and NCT6692
                 eid = 0x08;
-
+            else
+                fprintf(stderr,"slave_addr:%X in deviceMap\n", smbusBindingPvt.slave_addr);
             auto rc = registerEndpoint(yield, bindingPvtVect, eid);
             if (rc)
             {

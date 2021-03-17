@@ -34,6 +34,7 @@ struct SMBusConfiguration
     uint8_t defaultEid;
     std::set<uint8_t> eidPool;
     std::string bus;
+    std::string ip;
     bool arpMasterSupport;
     uint8_t bmcSlaveAddr;
     unsigned int reqToRespTime;

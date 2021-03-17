@@ -131,6 +131,7 @@ static std::optional<SMBusConfiguration>
     uint64_t defaultEID = 0;
     std::vector<uint64_t> eidPool;
     std::string bus;
+    std::string ip;
     bool arpOwnerSupport = false;
     uint64_t bmcReceiverAddress = 0;
     uint64_t reqToRespTimeMs = 0;
@@ -156,6 +157,14 @@ static std::optional<SMBusConfiguration>
     {
         return std::nullopt;
     }
+	fprintf(stderr,"Try to read ip from json\n");
+    if (!getField(map, "IP", ip) && !getField(map, "ip", ip))
+    {
+        ip = "127.0.0.1";
+        fprintf(stderr,"No ip in mctpd_config.json\n");
+        //return std::nullopt;
+    }else
+		fprintf(stderr,"IP is %s\n",ip.c_str());
 
     if (!getField(map, "ARPOwnerSupport", arpOwnerSupport) &&
         !getField(map, "ARPMasterSupport", arpOwnerSupport))
@@ -194,6 +203,7 @@ static std::optional<SMBusConfiguration>
         config.eidPool = std::set<uint8_t>(eidPool.begin(), eidPool.end());
     }
     config.bus = bus;
+    config.ip = ip;
     config.arpMasterSupport = arpOwnerSupport;
     config.bmcSlaveAddr = static_cast<uint8_t>(bmcReceiverAddress);
     config.reqToRespTime = static_cast<unsigned int>(reqToRespTimeMs);

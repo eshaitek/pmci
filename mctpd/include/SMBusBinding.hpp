@@ -1,10 +1,11 @@
 #pragma once
 
 #include "MCTPBinding.hpp"
-
+#include <boost/asio/deadline_timer.hpp>
 #include <libmctp-smbus.h>
 
 #include <iostream>
+
 
 class SMBusBinding : public MctpBinding
 {
@@ -28,11 +29,13 @@ class SMBusBinding : public MctpBinding
     std::string bus;
     bool arpMasterSupport;
     uint8_t bmcSlaveAddr;
+    std::string ip {"127.0.0.1"};
     struct mctp_binding_smbus* smbus = nullptr;
     int inFd{-1};  // in_fd for the smbus binding
     int outFd{-1}; // out_fd for the root bus
     std::vector<std::pair<int, int>> muxFds;
     boost::asio::posix::stream_descriptor smbusReceiverFd;
+
     bool isMuxFd(const int fd);
     std::vector<std::pair<mctp_eid_t, struct mctp_smbus_extra_params>>
         smbusDeviceTable;
