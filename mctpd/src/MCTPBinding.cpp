@@ -429,6 +429,7 @@ MctpBinding::MctpBinding(std::shared_ptr<object_server>& objServer,
                     getBindingPrivateData(dstEid);
                 if (pvtData)
                 {
+                    fprintf(stderr,"In SendMctpMessagePayload method: dstEid:%x\n",dstEid);
                     return mctp_message_tx(mctp, dstEid, payload.data(),
                                            payload.size(), tagOwner, msgTag,
                                            pvtData->data());
@@ -1721,6 +1722,7 @@ std::optional<mctp_eid_t>
                                   mctp_eid_t eid,
                                   mctp_server::BindingModeTypes bindingMode)
 {
+    return eid;
     if (bindingModeType == mctp_server::BindingModeTypes::BusOwner)
     {
         return busOwnerRegisterEndpoint(yield, bindingPrivate);

@@ -267,10 +267,11 @@ void SMBusBinding::SMBusInit()
 
 
     err = connect(sockfd_in, reinterpret_cast< struct sockaddr *>(&info_in),sizeof(info_in));
-    if(err==-1){
+    if(err==-1)
        fprintf(stderr,"Connection to 8701 error\n");
-    }else
+    else
         inFd = sockfd_in;
+
     mctp_smbus_set_in_fd(smbus, inFd);
 
 
@@ -280,7 +281,6 @@ void SMBusBinding::SMBusInit()
 
 void SMBusBinding::readResponse()
 {
-	fprintf(stderr,"In readResponse()+++++++++++++++++++++++++++++++++\n");
 #if 0
 
 static constexpr size_t pollTime = 0; // in seconds
@@ -318,7 +318,6 @@ static constexpr size_t pollTime = 0; // in seconds
                 readResponse();
             }
             // through libmctp this will invoke rxMessage and message assembly
-			fprintf(stderr,"call mctp_smbus_read()++++++++++++++++++\n");
             mctp_smbus_read(smbus);
 
             readResponse();
@@ -399,9 +398,9 @@ void SMBusBinding::initEndpointDiscovery()
             auto rc = registerEndpoint(yield, bindingPvtVect, eid);
             if (rc)
             {
-                fprintf(stderr,"push EID:%d slave_addr:%X in smbusDeviceTable\n", rc.value(), smbusBindingPvt.slave_addr);
+                fprintf(stderr,"push EID:%d slave_addr:%X in smbusDeviceTable\n", eid, smbusBindingPvt.slave_addr);
                 smbusDeviceTable.push_back(
-                    std::make_pair(rc.value(), smbusBindingPvt));
+                    std::make_pair(eid, smbusBindingPvt));
             }
         }
     });
